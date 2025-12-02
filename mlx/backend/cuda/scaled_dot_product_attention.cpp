@@ -25,36 +25,75 @@ array prepare_sdpa_input(const array& x, Stream s) {
   return x;
 }
 
+// Return argsort(x.strides()).
+Strides argsort_strides(const array& x) {
+  Strides argsort(x.ndim());
+  std::iota(argsort.rbegin(), argsort.rend(), 0);
+  if (!x.flags().row_contiguous) {
+    std::stable_sort(argsort.begin(), argsort.end(), [&x](int idx1, int idx2) {
+      auto s1 = x.strides(idx1) > 0 ? x.strides(idx1) : 1;
+      auto s2 = x.strides(idx2) > 0 ? x.strides(idx2) : 1;
+      return s1 < s2;
+    });
+  }
+  return argsort;
+}
+
+// Compute strides of from |shape|, and transpose it in order of |argsort|.
+template <typename T, typename U>
+Strides strides_from_shape(const T& shape, const U& argsort) {
+  Strides strides(shape.size());
+  int64_t stride = 1;
+  for (int i : argsort) {
+    strides[i] = stride;
+    stride *= shape[i];
+  }
+  return strides;
+}
+
 void malloc_with_same_layout(
     cu::CommandEncoder& encoder,
     array& o,
     const array& q) {
-  if (q.flags().row_contiguous) {
-    o.set_data(cu::malloc_async(o.nbytes(), encoder));
-    return;
+  auto buffer = cu::malloc_async(o.nbytes(), encoder);
+  auto argsort = argsort_strides(q);
+  if (std::is_sorted(argsort.rbegin(), argsort.rend())) {
+    o.set_data(buffer);
+  } else {
+    o.set_data(
+        buffer,
+        o.size(),
+        strides_from_shape(o.shape(), argsort),
+        {true, false, false});
   }
-  // fill_order = argsort(q.strides())
-  Shape fill_order(q.ndim());
-  std::iota(fill_order.begin(), fill_order.end(), 0);
-  std::stable_sort(
-      fill_order.begin(), fill_order.end(), [&q](int idx1, int idx2) {
-        auto s1 = q.strides(idx1) > 0 ? q.strides(idx1) : 1;
-        auto s2 = q.strides(idx2) > 0 ? q.strides(idx2) : 1;
-        return s1 < s2;
-      });
-  // Generate o_strides with fill_order
-  Strides o_strides(q.ndim());
-  int64_t stride = 1;
-  for (int i : fill_order) {
-    o_strides[i] = stride;
-    stride *= o.shape(i);
+}
+
+template <typename T>
+void change_seq_length(
+    std::shared_ptr<fe::graph::Tensor_attributes>& attrs,
+    int64_t seq_length,
+    const T& argsort) {
+  auto shape = attrs->get_dim();
+  shape[2] = seq_length;
+  auto strides = strides_from_shape(shape, argsort);
+  attrs->set_dim(shape).set_stride(convert_vector<int64_t>(strides));
+}
+
+constexpr int MAX_SEQ_LENGTH_Q = 12'000;
+constexpr int MAX_SEQ_LENGTH_KV = 12'000;
+
+bool uses_variable_seq_length(
+    const array& q,
+    const array& k,
+    const array& v,
+    const std::optional<array>& mask_arr) {
+  if (!q.flags().contiguous || !k.flags().contiguous || !v.flags().contiguous) {
+    return false;
   }
-  // o is a transposed contiguous array
-  o.set_data(
-      cu::malloc_async(o.nbytes(), encoder),
-      o.size(),
-      o_strides,
-      {true, false, false});
+  if (mask_arr && !mask_arr->flags().contiguous) {
+    return false;
+  }
+  return true;
 }
 
 constexpr int QKV_NDIM = 4;
@@ -62,44 +101,62 @@ constexpr int QKV_NDIM = 4;
 struct SDPACacheKey {
   int device_id;
   fe::DataType_t cudnn_dtype;
+  bool do_causal;
+  bool output_logsumexp;
+  bool variable_seq_length;
   std::array<int, QKV_NDIM> q_shape;
   std::array<int, QKV_NDIM> k_shape;
   std::array<int, QKV_NDIM> v_shape;
+  std::array<int, QKV_NDIM> mask_shape;
   std::array<int64_t, QKV_NDIM> q_strides;
   std::array<int64_t, QKV_NDIM> k_strides;
   std::array<int64_t, QKV_NDIM> v_strides;
-  bool do_causal;
-  std::array<int, QKV_NDIM> mask_shape;
   std::array<int64_t, QKV_NDIM> mask_strides;
-  bool output_logsumexp;
 };
 
-inline BytesKey<SDPACacheKey> build_sdpa_cache_key(
+BytesKey<SDPACacheKey> build_sdpa_cache_key(
     cu::CommandEncoder& encoder,
     const array& q,
     const array& k,
     const array& v,
     bool do_causal,
     const std::optional<array>& mask_arr,
-    bool output_logsumexp = true) {
+    bool output_logsumexp = true,
+    bool variable_seq_length = false) {
   BytesKey<SDPACacheKey> cache_key;
   cache_key.pod = {
       encoder.device().cuda_device(),
       dtype_to_cudnn_type(q.dtype()),
+      do_causal,
+      output_logsumexp,
+      variable_seq_length,
       vector_key<QKV_NDIM>(q.shape()),
       vector_key<QKV_NDIM>(k.shape()),
       vector_key<QKV_NDIM>(v.shape()),
-      vector_key<QKV_NDIM>(q.strides()),
-      vector_key<QKV_NDIM>(k.strides()),
-      vector_key<QKV_NDIM>(v.strides()),
-      do_causal,
-      {},
-      {},
-      output_logsumexp,
   };
   if (mask_arr) {
     cache_key.pod.mask_shape = vector_key<QKV_NDIM>(mask_arr->shape());
-    cache_key.pod.mask_strides = vector_key<QKV_NDIM>(mask_arr->strides());
+  }
+  if (variable_seq_length) {
+    cache_key.pod.q_shape[2] = MAX_SEQ_LENGTH_Q;
+    cache_key.pod.k_shape[2] = MAX_SEQ_LENGTH_KV;
+    cache_key.pod.v_shape[2] = MAX_SEQ_LENGTH_KV;
+    cache_key.pod.mask_shape[2] = MAX_SEQ_LENGTH_Q;
+    cache_key.pod.mask_shape[3] = MAX_SEQ_LENGTH_KV;
+    cache_key.pod.q_strides = vector_key<QKV_NDIM>(argsort_strides(q));
+    cache_key.pod.k_strides = vector_key<QKV_NDIM>(argsort_strides(k));
+    cache_key.pod.v_strides = vector_key<QKV_NDIM>(argsort_strides(v));
+    if (mask_arr) {
+      cache_key.pod.mask_strides =
+          vector_key<QKV_NDIM>(argsort_strides(*mask_arr));
+    }
+  } else {
+    cache_key.pod.q_strides = vector_key<QKV_NDIM>(q.strides());
+    cache_key.pod.k_strides = vector_key<QKV_NDIM>(k.strides());
+    cache_key.pod.v_strides = vector_key<QKV_NDIM>(v.strides());
+    if (mask_arr) {
+      cache_key.pod.mask_strides = vector_key<QKV_NDIM>(mask_arr->strides());
+    }
   }
   return cache_key;
 }
@@ -124,6 +181,9 @@ enum UIDS {
   BIAS,
   O,
   STATS,
+  // Variable seq length:
+  SEQ_LEN_Q,
+  SEQ_LEN_KV,
   // Backward graph:
   D_Q,
   D_K,
@@ -133,6 +193,7 @@ enum UIDS {
 
 DnnGraph build_sdpa_graph(
     cudnnHandle_t handle,
+    const SDPACacheKey& cache_key,
     const array& q,
     const array& k,
     const array& v,
@@ -146,6 +207,11 @@ DnnGraph build_sdpa_graph(
   auto q_ = graph.tensor("Q", Q, q);
   auto k_ = graph.tensor("K", K, k);
   auto v_ = graph.tensor("V", V, v);
+  if (cache_key.variable_seq_length) {
+    change_seq_length(q_, MAX_SEQ_LENGTH_Q, cache_key.q_strides);
+    change_seq_length(k_, MAX_SEQ_LENGTH_KV, cache_key.k_strides);
+    change_seq_length(v_, MAX_SEQ_LENGTH_KV, cache_key.v_strides);
+  }
 
   auto options = fe::graph::SDPA_attributes()
                      .set_name("sdpa_cudnn")
@@ -159,13 +225,44 @@ DnnGraph build_sdpa_graph(
     }
   }
   if (mask_arr) {
-    options.set_bias(graph.tensor("BIAS", BIAS, *mask_arr));
+    auto bias_ = graph.tensor("BIAS", BIAS, *mask_arr);
+    if (cache_key.variable_seq_length) {
+      auto shape = bias_->get_dim();
+      shape[2] = MAX_SEQ_LENGTH_Q;
+      shape[3] = MAX_SEQ_LENGTH_KV;
+      auto strides = bias_->get_stride();
+      for (int i = shape.size() - 1, stride = 1; i >= 0; --i) {
+        strides[i] = stride;
+        stride *= shape[i];
+      }
+      bias_->set_dim(shape).set_stride(strides);
+    }
+    options.set_bias(bias_);
+  }
+  if (cache_key.variable_seq_length) {
+    auto seq_len_q_ = graph.scalar("SEQ_LEN_Q", SEQ_LEN_Q, int32);
+    seq_len_q_->set_dim({q.shape(0), 1, 1, 1})
+        .set_stride({1, 1, 1, 1})
+        .set_is_pass_by_value(false);
+    auto seq_len_kv_ = graph.scalar("SEQ_LEN_KV", SEQ_LEN_KV, int32);
+    seq_len_kv_->set_dim({q.shape(0), 1, 1, 1})
+        .set_stride({1, 1, 1, 1})
+        .set_is_pass_by_value(false);
+    options.set_padding_mask(true)
+        .set_seq_len_q(seq_len_q_)
+        .set_seq_len_kv(seq_len_kv_);
   }
 
   auto [o_, stats_] = graph.sdpa(q_, k_, v_, options);
   graph.tensor(o_, O, o)->set_output(true);
   if (output_logsumexp) {
     graph.tensor(stats_, STATS, stats)->set_output(true);
+  }
+  if (cache_key.variable_seq_length) {
+    change_seq_length(o_, MAX_SEQ_LENGTH_Q, cache_key.q_strides);
+    if (output_logsumexp) {
+      change_seq_length(stats_, MAX_SEQ_LENGTH_Q, cache_key.q_strides);
+    }
   }
 
   CHECK_CUDNN_FE_ERROR(graph.prepare());
@@ -285,13 +382,31 @@ void sdpa_cudnn(
     encoder.set_output_array(stats);
   }
 
+  bool variable_seq_length = uses_variable_seq_length(q, k, v, mask_arr);
+
   // Search cache.
   auto cache_key = build_sdpa_cache_key(
-      encoder, q, k, v, do_causal, mask_arr, output_logsumexp);
+      encoder,
+      q,
+      k,
+      v,
+      do_causal,
+      mask_arr,
+      output_logsumexp,
+      variable_seq_length);
   auto it = sdpa_cache().find(cache_key);
   if (it == sdpa_cache().end()) {
     auto graph = build_sdpa_graph(
-        handle, q, k, v, do_causal, mask_arr, output_logsumexp, o, stats);
+        handle,
+        cache_key.pod,
+        q,
+        k,
+        v,
+        do_causal,
+        mask_arr,
+        output_logsumexp,
+        o,
+        stats);
     it = sdpa_cache().emplace(cache_key, std::move(graph)).first;
   }
   auto& graph = it->second;
@@ -307,6 +422,17 @@ void sdpa_cudnn(
   }
   if (output_logsumexp) {
     variant_pack[STATS] = gpu_ptr<void>(stats);
+  }
+  if (variable_seq_length) {
+    int B = q.shape(0);
+    std::vector<int32_t> filled_q(B, q.shape(2));
+    array seq_len_q(filled_q.begin(), {B}, int32);
+    encoder.add_temporary(seq_len_q);
+    std::vector<int32_t> filled_kv(B, k.shape(2));
+    array seq_len_kv(filled_kv.begin(), {B}, int32);
+    encoder.add_temporary(seq_len_kv);
+    variant_pack[SEQ_LEN_Q] = gpu_ptr<void>(seq_len_q);
+    variant_pack[SEQ_LEN_KV] = gpu_ptr<void>(seq_len_kv);
   }
 
   CHECK_CUDNN_FE_ERROR(graph.encode_graph(encoder, std::move(variant_pack)));
