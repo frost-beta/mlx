@@ -5,11 +5,9 @@
 #include "mlx/backend/cuda/reduce/reduce.cuh"
 #include "mlx/backend/gpu/copy.h"
 #include "mlx/dtype_utils.h"
-#include "mlx/fast_primitives.h"
 
 #include <cooperative_groups.h>
 #include <cooperative_groups/reduce.h>
-#include <nvtx3/nvtx3.hpp>
 
 namespace mlx::core {
 
@@ -217,19 +215,13 @@ __global__ void layer_norm_vjp(
 
 } // namespace cu
 
-namespace fast {
-
-bool LayerNorm::use_fallback(Stream s) {
-  return s.device == Device::cpu;
-}
-
-// TODO: There are duplicate code with backend/metal/normalization.cpp
-void LayerNorm::eval_gpu(
-    const std::vector<array>& inputs,
-    std::vector<array>& outputs) {
-  nvtx3::scoped_range r("LayerNorm::eval_gpu");
-  auto& s = stream();
-  auto& out = outputs[0];
+void dispatch_layer_norm(
+    const array& x_,
+    const array& w,
+    const array& b,
+    array& out,
+    float eps,
+    Stream s) {
   auto& encoder = cu::get_command_encoder(s);
 
   // Make sure that the last dimension is contiguous.
@@ -257,9 +249,7 @@ void LayerNorm::eval_gpu(
     }
   };
 
-  const array x = set_output(inputs[0]);
-  const array& w = inputs[1];
-  const array& b = inputs[2];
+  const array x = set_output(x_);
 
   int32_t axis_size = x.shape().back();
   int32_t n_rows = x.data_size() / axis_size;
@@ -284,7 +274,7 @@ void LayerNorm::eval_gpu(
           gpu_ptr<DataType>(w),
           gpu_ptr<DataType>(b),
           gpu_ptr<DataType>(out),
-          eps_,
+          eps,
           axis_size,
           w_stride,
           b_stride);
@@ -292,11 +282,16 @@ void LayerNorm::eval_gpu(
   });
 }
 
-void LayerNormVJP::eval_gpu(
-    const std::vector<array>& inputs,
-    std::vector<array>& outputs) {
-  nvtx3::scoped_range r("LayerNormVJP::eval_gpu");
-  auto& s = stream();
+void dispatch_layer_norm_backward(
+    const array& x_,
+    const array& w,
+    const array& b,
+    const array& g_,
+    array& gx,
+    array& gw,
+    array& gb,
+    float eps,
+    Stream s) {
   auto& encoder = cu::get_command_encoder(s);
 
   // Ensure row contiguity. We could relax this step by checking that the array
@@ -310,19 +305,14 @@ void LayerNormVJP::eval_gpu(
     copied = true;
     return contiguous_copy_gpu(x, s);
   };
-  bool donate_x = inputs[0].is_donatable();
-  bool donate_g = inputs[3].is_donatable();
+  bool donate_x = x_.is_donatable();
+  bool donate_g = g_.is_donatable();
   bool copied;
-  auto x = check_input(inputs[0], copied);
+  auto x = check_input(x_, copied);
   donate_x |= copied;
-  const array& w = inputs[1];
-  const array& b = inputs[2];
   bool g_copied;
-  auto g = check_input(inputs[3], g_copied);
+  auto g = check_input(g_, g_copied);
   donate_g |= g_copied;
-  array& gx = outputs[0];
-  array& gw = outputs[1];
-  array& gb = outputs[2];
 
   // Check whether we had a weight.
   bool has_w = w.ndim() != 0;
@@ -398,7 +388,7 @@ void LayerNormVJP::eval_gpu(
                 gpu_ptr<DataType>(g),
                 gpu_ptr<DataType>(gx),
                 gpu_ptr<DataType>(gw_temp),
-                eps_,
+                eps,
                 axis_size,
                 w_stride);
           });
@@ -411,7 +401,5 @@ void LayerNormVJP::eval_gpu(
     col_reduce(encoder, gw_temp, gw, Reduce::ReduceType::Sum, {0}, plan);
   }
 }
-
-} // namespace fast
 
 } // namespace mlx::core
