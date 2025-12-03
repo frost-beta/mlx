@@ -215,7 +215,7 @@ __global__ void layer_norm_vjp(
 
 } // namespace cu
 
-void dispatch_layer_norm(
+void layer_norm_vector(
     const array& x_,
     const array& w,
     const array& b,
@@ -282,7 +282,7 @@ void dispatch_layer_norm(
   });
 }
 
-void dispatch_layer_norm_backward(
+void layer_norm_backward_vector(
     const array& x_,
     const array& w,
     const array& b,

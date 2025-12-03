@@ -310,7 +310,7 @@ void dispatch_group_dim(int axis_size, F&& f) {
   }
 }
 
-void dispatch_rms_norm(
+void rms_norm_vector(
     const array& x_,
     const array& w,
     array& out,
@@ -393,7 +393,7 @@ void dispatch_rms_norm(
   });
 }
 
-void dispatch_rms_norm_backward(
+void rms_norm_backward_vector(
     const array& x_,
     const array& w,
     const array& g_,

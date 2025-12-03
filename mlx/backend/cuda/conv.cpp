@@ -116,7 +116,7 @@ std::optional<DnnGraph> build_conv_graph(
         .set_dilation(dilation);
   };
 
-  std::shared_ptr<fe::graph::Tensor_attributes> y_;
+  DnnGraph::Tensor y_;
   if (backend_type == CONV_FORWARD) {
     auto options = fe::graph::Conv_fprop_attributes();
     set_options(options);

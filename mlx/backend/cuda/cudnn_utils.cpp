@@ -105,37 +105,35 @@ void* DnnGraph::prepare_workspace(cu::CommandEncoder& encoder) {
   return nullptr;
 }
 
-void DnnGraph::set_tensor_attrs(
-    std::shared_ptr<fe::graph::Tensor_attributes>& tensor,
+void DnnGraph::set_tensor(
+    Tensor& attrs,
     int64_t uid,
     const array& x,
     const std::vector<int64_t>& shape,
     const std::vector<int64_t>& strides) {
-  tensor->set_uid(uid)
+  attrs->set_uid(uid)
       .set_alignment(get_alignment(x))
       .set_data_type(dtype_to_cudnn_type(x.dtype()))
       .set_dim(shape)
       .set_stride(strides);
 }
 
-void DnnGraph::set_tensor_attrs(
-    std::shared_ptr<fe::graph::Tensor_attributes>& tensor,
-    int64_t uid,
-    const array& x) {
-  set_tensor_attrs(
-      tensor,
-      uid,
-      x,
-      convert_vector<int64_t>(x.shape()),
-      normalized_strides(x));
+void DnnGraph::set_tensor(Tensor& attrs, int64_t uid, const array& x) {
+  set_tensor(
+      attrs, uid, x, convert_vector<int64_t>(x.shape()), normalized_strides(x));
 }
 
-void DnnGraph::set_tensor_attrs_nchw(
-    std::shared_ptr<fe::graph::Tensor_attributes>& tensor,
-    int64_t uid,
-    const array& x) {
+void DnnGraph::set_tensor_nchw(Tensor& attrs, int64_t uid, const array& x) {
   auto [shape, strides] = nhwc_to_nchw(x);
-  set_tensor_attrs(tensor, uid, x, shape, strides);
+  set_tensor(attrs, uid, x, shape, strides);
+}
+
+void DnnGraph::set_tensor_2d(Tensor& attrs, int64_t uid, const array& x) {
+  assert(x.flags().contiguous);
+  assert(x.strides(-1) == 1);
+  int64_t dim_last = x.shape(-1);
+  int64_t dim_batch = x.data_size() / dim_last;
+  set_tensor(attrs, uid, x, {dim_batch, dim_last}, {dim_last, 1});
 }
 
 } // namespace mlx::core

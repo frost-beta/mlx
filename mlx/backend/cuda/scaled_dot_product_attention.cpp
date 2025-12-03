@@ -149,7 +149,7 @@ DnnGraph build_sdpa_graph(
 
   auto options = fe::graph::SDPA_attributes()
                      .set_name("sdpa_cudnn")
-                     .set_attn_scale(graph.scalar("Scale", SCALE, float32))
+                     .set_attn_scale(graph.scalar("SCALE", SCALE, float32))
                      .set_generate_stats(output_logsumexp);
   if (do_causal) {
     if (q.shape(2) > k.shape(2)) {

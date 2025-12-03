@@ -86,6 +86,8 @@ inline std::array<T, NDIM> vector_key(const Vec<T>& vec) {
 // Extends cuDNN graph with helpers.
 class DnnGraph : public fe::graph::Graph {
  public:
+  using Tensor = std::shared_ptr<fe::graph::Tensor_attributes>;
+
   DnnGraph(cudnnHandle_t handle, Dtype io_dtype, Dtype compute_dtype = float32)
       : handle_(handle) {
     set_io_data_type(dtype_to_cudnn_type(io_dtype));
@@ -94,11 +96,8 @@ class DnnGraph : public fe::graph::Graph {
   }
 
   // Create a cuDNN tensor description from MLX array |x|.
-  auto& tensor(
-      std::shared_ptr<fe::graph::Tensor_attributes>& attrs,
-      int64_t uid,
-      const array& x) {
-    set_tensor_attrs(attrs, uid, x);
+  auto& tensor(Tensor& attrs, int64_t uid, const array& x) {
+    set_tensor(attrs, uid, x);
     return attrs;
   }
   auto tensor(const char* name, int64_t uid, const array& x) {
@@ -109,16 +108,26 @@ class DnnGraph : public fe::graph::Graph {
 
   // Create a cuDNN tensor description from MLX array |x|, and transpose it from
   // NHWC layout to NCHW.
-  auto& tensor_nchw(
-      std::shared_ptr<fe::graph::Tensor_attributes>& attrs,
-      int64_t uid,
-      const array& x) {
-    set_tensor_attrs_nchw(attrs, uid, x);
+  auto& tensor_nchw(Tensor& attrs, int64_t uid, const array& x) {
+    set_tensor_nchw(attrs, uid, x);
     return attrs;
   }
   auto tensor_nchw(const char* name, int64_t uid, const array& x) {
     auto attrs = Graph::tensor(fe::graph::Tensor_attributes().set_name(name));
     tensor_nchw(attrs, uid, x);
+    return attrs;
+  }
+
+  // Create a cuDNN tensor description from MLX array |x|, keep last dim and
+  // merge other dims into one dim, |x| must be contiguous and last stride must
+  // be 1.
+  auto& tensor_2d(Tensor& attrs, int64_t uid, const array& x) {
+    set_tensor_2d(attrs, uid, x);
+    return attrs;
+  }
+  auto tensor_2d(const char* name, int64_t uid, const array& x) {
+    auto attrs = Graph::tensor(fe::graph::Tensor_attributes().set_name(name));
+    tensor_2d(attrs, uid, x);
     return attrs;
   }
 
@@ -150,20 +159,15 @@ class DnnGraph : public fe::graph::Graph {
  private:
   void* prepare_workspace(cu::CommandEncoder& encoder);
 
-  void set_tensor_attrs(
-      std::shared_ptr<fe::graph::Tensor_attributes>& tensor,
+  void set_tensor(
+      Tensor& attrs,
       int64_t uid,
       const array& x,
       const std::vector<int64_t>& shape,
       const std::vector<int64_t>& strides);
-  void set_tensor_attrs(
-      std::shared_ptr<fe::graph::Tensor_attributes>& tensor,
-      int64_t uid,
-      const array& x);
-  void set_tensor_attrs_nchw(
-      std::shared_ptr<fe::graph::Tensor_attributes>& tensor,
-      int64_t uid,
-      const array& x);
+  void set_tensor(Tensor& attrs, int64_t uid, const array& x);
+  void set_tensor_nchw(Tensor& attrs, int64_t uid, const array& x);
+  void set_tensor_2d(Tensor& attrs, int64_t uid, const array& x);
 
   cudnnHandle_t handle_;
 };
