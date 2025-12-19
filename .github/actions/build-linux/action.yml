@@ -1,6 +1,10 @@
 name: 'Build and Test on Linux'
 
 inputs:
+  arch:
+    description: 'Platform architecture tag'
+    required: false
+    default: ${{ runner.arch == 'arm64' && 'aarch64' || 'x86_64' }}
   toolkit:
     description: 'The toolkit to build with'
     required: false
@@ -39,3 +43,29 @@ runs:
       run: |
         cmake . -B build -DCMAKE_BUILD_TYPE=Debug ${{ steps.python_build.outputs.CMAKE_ARGS }}
         cmake --build build -j $(nproc)
+
+    - name: Build wheel
+      shell: sh
+      env:
+        DEBUG: 1
+        CMAKE_ARGS: ${{ steps.python_build.outputs.CMAKE_ARGS }}
+        # uv builds wheel from source dist which has no git information.
+        DEV_RELEASE: 1
+      run: |
+        pip install auditwheel patchelf uv
+        uv build
+        auditwheel repair dist/mlx*.whl \
+          --plat manylinux_2_39_${{ inputs.arch }} \
+          --only-plat \
+          --exclude libcublas* \
+          --exclude libcuda* \
+          --exclude libcudnn* \
+          --exclude libnccl* \
+          --exclude libnvrtc*
+
+    - name: Upload wheel
+      uses: actions/upload-artifact@v6
+      with:
+        overwrite: true
+        name: linux-wheels-${{ inputs.arch }}-${{ inputs.toolkit }}
+        path: wheelhouse/mlx*.whl

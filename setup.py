@@ -139,7 +139,7 @@ class CMakeBuild(build_ext):
             build_args += [f"-j{os.cpu_count()}"]
 
         # Avoid cache miss when building from temporary dirs.
-        os.environ["CCACHE_BASEDIR"] = os.path.realpath(self.build_temp)
+        os.environ["CCACHE_BASEDIR"] = os.path.realpath(ext.sourcedir)
         os.environ["CCACHE_NOHASHDIR"] = "true"
 
         subprocess.run(
@@ -255,9 +255,11 @@ if __name__ == "__main__":
 
     extras = {
         "dev": [
-            "numpy>=2",
+            "nanobind==2.10.2",
+            "numpy",
             "pre-commit",
-            "torch>=2.9",
+            "setuptools>=80",
+            "torch",
             "typing_extensions",
         ],
     }
@@ -285,6 +287,28 @@ if __name__ == "__main__":
     #  - Wheel has only platform tags
     #  - Wheel should be built only for different platforms
     #  - Package name is back-end specific, e.g mlx-metal
+    if build_stage != 1 and build_cuda:
+        toolkit = cuda_toolkit_major_version()
+        # Note: update following files when new dependency is added:
+        # * .github/actions/build-cuda-release/action.yml
+        # * mlx/backend/cuda/CMakeLists.txt
+        if toolkit == 12:
+            install_requires += [
+                "nvidia-cublas-cu12==12.9.*",
+                "nvidia-cuda-nvrtc-cu12==12.9.*",
+            ]
+        elif toolkit == 13:
+            install_requires += [
+                "nvidia-cublas",
+                "nvidia-cuda-nvrtc",
+            ]
+        else:
+            raise ValueError(f"Unknown toolkit {toolkit}")
+        install_requires += [
+            f"nvidia-cudnn-cu{toolkit}==9.*",
+            f"nvidia-nccl-cu{toolkit}",
+        ]
+
     if build_stage != 2:
         if build_stage == 1:
             install_requires.append(
@@ -296,7 +320,6 @@ if __name__ == "__main__":
                     f'mlx-cuda-{toolkit}=={version}; platform_system == "Linux"'
                 ]
             extras["cpu"] = [f'mlx-cpu=={version}; platform_system == "Linux"']
-
         _setup(
             name="mlx",
             packages=packages,
@@ -309,28 +332,7 @@ if __name__ == "__main__":
         if build_macos:
             name = "mlx-metal"
         elif build_cuda:
-            toolkit = cuda_toolkit_major_version()
             name = f"mlx-cuda-{toolkit}"
-            # Note: update following files when new dependency is added:
-            # * .github/actions/build-cuda-release/action.yml
-            # * mlx/backend/cuda/CMakeLists.txt
-            if toolkit == 12:
-                install_requires += [
-                    "nvidia-cublas-cu12==12.9.*",
-                    "nvidia-cuda-nvrtc-cu12==12.9.*",
-                ]
-            elif toolkit == 13:
-                install_requires += [
-                    "nvidia-cublas",
-                    "nvidia-cuda-nvrtc",
-                ]
-            else:
-                raise ValueError(f"Unknown toolkit {toolkit}")
-            install_requires += [
-                f"nvidia-cudnn-cu{toolkit}==9.*",
-                f"nvidia-nccl-cu{toolkit}",
-            ]
-
         else:
             name = "mlx-cpu"
         _setup(

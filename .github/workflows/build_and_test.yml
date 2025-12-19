@@ -84,6 +84,41 @@ jobs:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/build-docs
 
+  wheel_test:
+    name: Linux Wheel Tests (${{ matrix.toolkit }}, ${{ matrix.arch }})
+    needs: [cuda_build_and_test, linux_build_and_test]
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ['x86_64', 'aarch64']
+        toolkit: ['cpu', 'cuda-12.6', 'cuda-12.9']
+    runs-on: ${{ matrix.arch == 'x86_64' && 'ubuntu-24.04' || 'ubuntu-24.04-arm' }}
+    steps:
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Install CUDA driver
+        if: matrix.toolkit != 'cpu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nvidia-headless-no-dkms-570
+      - name: Download wheel
+        uses: actions/download-artifact@v7
+        with:
+          name: linux-wheels-${{ matrix.arch }}-${{ matrix.toolkit }}
+          path: wheelhouse
+      - name: Install wheel and run
+        run: |
+          pip install ./wheelhouse/mlx*.whl
+          if ${{ matrix.toolkit == 'cpu' }} ; then
+            python -c 'import mlx.core'
+          else
+            if python -c 'import mlx.core' 2> OUTPUT ; then
+              exit 2 # import should fail due to no gpu
+            fi
+            cat OUTPUT | grep -q 'no CUDA-capable device'
+          fi
+
   linux_sanitizer_build_and_test:
     name: Linux Sanitizer Tests (${{ matrix.sanitizer }})
     needs: check_lint
