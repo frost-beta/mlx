@@ -422,7 +422,7 @@ void qmm_impl_naive(
   bool broadcast_b = w.ndim() == 2;
 
   bool is_sm80 = encoder.device().compute_capability_major() >= 8;
-  dispatch_bool(is_sm80, [&](auto sm80) {
+  dispatch_bool(is_sm80, [&]<bool is_sm80>() {
     dispatch_element_types(out.dtype(), tag, [&]<typename Element>() {
       dispatch_quant_types<Element>(
           bits,
@@ -437,7 +437,7 @@ void qmm_impl_naive(
               encoder.set_input_array(*biases);
             }
             encoder.set_output_array(out);
-            cutlass_gemm::qmm_naive<TileM, KMajor, sm80.value>(
+            cutlass_gemm::qmm_naive<TileM, KMajor, is_sm80>(
                 gpu_ptr<Element>(x),
                 gpu_ptr<Quant>(w),
                 gpu_ptr<Scale>(scales),

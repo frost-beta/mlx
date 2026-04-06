@@ -377,16 +377,13 @@ void LayerNormVJP::eval_gpu(
   encoder.set_output_array(gx);
   encoder.set_output_array(gw_temp);
   dispatch_float_types(gx.dtype(), "layernorm_vjp", [&](auto type_tag) {
-    dispatch_bool(has_w, [&](auto has_w_constant) {
+    dispatch_bool(has_w, [&]<bool has_w_constant>() {
       using DataType = cuda_type_t<MLX_GET_TYPE(type_tag)>;
       constexpr int N_READS = 16 / sizeof(DataType);
       dispatch_block_dim(
           cuda::ceil_div(axis_size, N_READS), [&](auto block_dim) {
-            auto kernel = cu::layer_norm_vjp<
-                DataType,
-                has_w_constant.value,
-                block_dim(),
-                N_READS>;
+            auto kernel = cu::
+                layer_norm_vjp<DataType, has_w_constant, block_dim(), N_READS>;
             encoder.add_kernel_node(
                 kernel,
                 n_rows,

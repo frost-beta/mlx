@@ -327,12 +327,11 @@ void RoPE::eval_gpu(
   }
   encoder.set_output_array(out);
   dispatch_float_types(out.dtype(), "rope", [&](auto type_tag) {
-    dispatch_bool(traditional_, [&](auto traditional) {
-      dispatch_bool(forward_, [&](auto forward) {
+    dispatch_bool(traditional_, [&]<bool traditional>() {
+      dispatch_bool(forward_, [&]<bool forward>() {
         using DataType = cuda_type_t<MLX_GET_TYPE(type_tag)>;
         if (single && !with_freqs) {
-          auto kernel =
-              cu::rope_single<DataType, traditional.value, forward.value>;
+          auto kernel = cu::rope_single<DataType, traditional, forward>;
           uint2 dims = make_uint2(dims_ / 2, N);
           auto [grid, block] = get_grid_and_block(dims.x, dims.y, 1);
           encoder.add_kernel_node(
@@ -347,8 +346,7 @@ void RoPE::eval_gpu(
               mat_size,
               dims);
         } else if (single) {
-          auto kernel =
-              cu::rope_single_freqs<DataType, traditional.value, forward.value>;
+          auto kernel = cu::rope_single_freqs<DataType, traditional, forward>;
           uint2 dims = make_uint2(dims_ / 2, N);
           auto [grid, block] = get_grid_and_block(dims.x, dims.y, 1);
           encoder.add_kernel_node(
@@ -364,8 +362,7 @@ void RoPE::eval_gpu(
               dims,
               inputs[2].strides(0));
         } else if (with_freqs) {
-          auto kernel =
-              cu::rope_freqs<DataType, traditional.value, forward.value>;
+          auto kernel = cu::rope_freqs<DataType, traditional, forward>;
           int n_per_thread = 4;
           uint32_t dimz = B * ((N + n_per_thread - 1) / n_per_thread);
           uint3 dims = make_uint3(dims_ / 2, T, dimz);
@@ -391,7 +388,7 @@ void RoPE::eval_gpu(
               dims,
               inputs[2].strides(0));
         } else {
-          auto kernel = cu::rope<DataType, traditional.value, forward.value>;
+          auto kernel = cu::rope<DataType, traditional, forward>;
           int n_per_thread = 4;
           uint32_t dimz = B * ((N + n_per_thread - 1) / n_per_thread);
           uint3 dims = make_uint3(dims_ / 2, T, dimz);

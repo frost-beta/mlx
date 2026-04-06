@@ -769,15 +769,14 @@ void single_block_sort(
         dim3 grid(1, n_rows, 1);
         dim3 block(BLOCK_THREADS, 1, 1);
 
-        dispatch_bool(argsort, [&](auto arg_tag) {
-          constexpr bool ARG_SORT = decltype(arg_tag)::value;
-          using OutT = std::conditional_t<ARG_SORT, uint32_t, ValT>;
+        dispatch_bool(argsort, [&]<bool argsort>() {
+          using OutT = std::conditional_t<argsort, uint32_t, ValT>;
 
           if (contiguous) {
             auto kernel = cu::block_sort_kernel<
                 ValT,
                 OutT,
-                ARG_SORT,
+                argsort,
                 BLOCK_THREADS,
                 N_PER_THREAD>;
             int64_t in_stride_segment_axis = INT64_MAX;
@@ -809,7 +808,7 @@ void single_block_sort(
             auto kernel = cu::block_sort_nc_kernel<
                 ValT,
                 OutT,
-                ARG_SORT,
+                argsort,
                 BLOCK_THREADS,
                 N_PER_THREAD>;
             auto nc_shape_param = const_param(nc_shape);
@@ -887,15 +886,14 @@ void multi_block_sort(
     dim3 grid(n_blocks, n_rows, 1);
     dim3 block(BLOCK_THREADS, 1, 1);
 
-    dispatch_bool(argsort, [&](auto arg_tag) {
-      constexpr bool ARG_SORT = decltype(arg_tag)::value;
+    dispatch_bool(argsort, [&]<bool argsort>() {
       auto nc_shape_param = const_param(nc_shape);
       auto nc_strides_param = const_param(nc_str);
 
       auto block_sort_kernel = cu::mb_block_sort_kernel<
           ValT,
           IdxT,
-          ARG_SORT,
+          argsort,
           BLOCK_THREADS,
           N_PER_THREAD>;
       encoder.set_input_array(in);
@@ -921,7 +919,7 @@ void multi_block_sort(
         auto partition_kernel = cu::mb_block_partition_kernel<
             ValT,
             IdxT,
-            ARG_SORT,
+            argsort,
             BLOCK_THREADS,
             N_PER_THREAD>;
 
@@ -943,7 +941,7 @@ void multi_block_sort(
         auto merge_kernel = cu::mb_block_merge_kernel<
             ValT,
             IdxT,
-            ARG_SORT,
+            argsort,
             BLOCK_THREADS,
             N_PER_THREAD>;
 

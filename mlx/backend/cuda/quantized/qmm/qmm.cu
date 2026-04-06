@@ -226,14 +226,14 @@ void qmm_naive(
     qmm_impl_naive<TileM, KMajor>(
         x, w, scales, biases, out, bits, group_size, mode, encoder);
   };
-  dispatch_bool(transpose, [&](auto k_major) {
+  dispatch_bool(transpose, [&]<bool k_major>() {
     int m = out.ndim() > 1 ? out.shape(-2) : 1;
     if (m <= 16) {
-      dispatch.template operator()<16, k_major.value>();
+      dispatch.template operator()<16, k_major>();
     } else if (m <= 32) {
-      dispatch.template operator()<32, k_major.value>();
+      dispatch.template operator()<32, k_major>();
     } else {
-      dispatch.template operator()<64, k_major.value>();
+      dispatch.template operator()<64, k_major>();
     }
   });
 }

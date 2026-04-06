@@ -145,11 +145,11 @@ void unary_op_gpu_inplace(
       using CTYPE_IN = MLX_GET_TYPE(in_type_tag);
       using CTYPE_OUT = MLX_GET_TYPE(out_type_tag);
       if constexpr (cu::supports_unary_op<Op, CTYPE_IN, CTYPE_OUT>()) {
-        dispatch_bool(large, [&](auto large) {
+        dispatch_bool(large, [&]<bool large>() {
           using InType = cuda_type_t<CTYPE_IN>;
           using OutType = cuda_type_t<CTYPE_OUT>;
           if (contig) {
-            using IdxT = std::conditional_t<large(), int64_t, uint32_t>;
+            using IdxT = std::conditional_t<large, int64_t, uint32_t>;
             constexpr int N_READS = 16 / sizeof(OutType);
             auto [num_blocks, block_dims] = get_launch_args(
                 out.data_size(), out.shape(), out.strides(), large, N_READS);
@@ -161,7 +161,7 @@ void unary_op_gpu_inplace(
                 gpu_ptr<OutType>(out),
                 out.data_size());
           } else {
-            using IdxT = std::conditional_t<large(), int64_t, int32_t>;
+            using IdxT = std::conditional_t<large, int64_t, int32_t>;
             auto [shape, strides] = collapse_contiguous_dims(in);
             auto ndim = shape.size();
             int work_per_thread = 1;

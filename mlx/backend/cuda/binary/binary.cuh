@@ -269,8 +269,8 @@ void binary_op_gpu_inplace(
           dispatch_bool(
               a.data_size() > INT32_MAX || b.data_size() > INT32_MAX ||
                   out.data_size() > INT32_MAX,
-              [&](auto large) {
-                using IdxT = std::conditional_t<large(), int64_t, int32_t>;
+              [&]<bool large>() {
+                using IdxT = std::conditional_t<large, int64_t, int32_t>;
                 Shape shape;
                 std::vector<Strides> strides;
                 std::tie(shape, strides) = collapse_contiguous_dims(a, b, out);
@@ -337,8 +337,8 @@ void binary_op_gpu_inplace(
                 }
               });
         } else {
-          dispatch_bool(out.data_size() > UINT32_MAX, [&](auto large) {
-            using IdxT = std::conditional_t<large(), int64_t, uint32_t>;
+          dispatch_bool(out.data_size() > UINT32_MAX, [&]<bool large>() {
+            using IdxT = std::conditional_t<large, int64_t, uint32_t>;
             constexpr int N_READS = 16 / sizeof(InType);
             auto kernel = cu::binary_ss<Op, InType, OutType, IdxT, N_READS>;
             if (bopt == BinaryOpType::ScalarVector) {
@@ -352,7 +352,7 @@ void binary_op_gpu_inplace(
                 out.data_size(),
                 out.shape(),
                 out.strides(),
-                large(),
+                large,
                 N_READS,
                 cu::BINARY_MAX_BLOCK_DIM);
             encoder.add_kernel_node(

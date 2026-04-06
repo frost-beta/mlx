@@ -98,10 +98,9 @@ void block_mask_copy(
     using T = cuda_type_t<MLX_GET_TYPE(type_tag)>;
 
     dispatch_mask_type<T>(mask.dtype(), [&]<typename MaskT>() {
-      dispatch_bool(src_contiguous, [&](auto contiguous_tag) {
-        constexpr bool Contiguous = decltype(contiguous_tag)::value;
+      dispatch_bool(src_contiguous, [&]<bool src_contiguous>() {
         encoder.add_kernel_node(
-            cu::block_mask_copy_kernel<T, MaskT, Contiguous>,
+            cu::block_mask_copy_kernel<T, MaskT, src_contiguous>,
             num_blocks,
             block_dims,
             gpu_ptr<T>(src),

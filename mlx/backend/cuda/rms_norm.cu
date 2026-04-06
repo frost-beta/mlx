@@ -471,7 +471,7 @@ void RMSNormVJP::eval_gpu(
   encoder.set_output_array(gx);
   encoder.set_output_array(gw_temp);
   dispatch_float_types(gx.dtype(), "rms_norm_vjp", [&](auto type_tag) {
-    dispatch_bool(has_w, [&](auto has_w_constant) {
+    dispatch_bool(has_w, [&]<bool has_w_constant>() {
       using DataType = cuda_type_t<MLX_GET_TYPE(type_tag)>;
       constexpr int N_READS = 16 / sizeof(DataType);
       if (axis_size <= N_READS * 1024) {
@@ -481,7 +481,7 @@ void RMSNormVJP::eval_gpu(
               constexpr int block_dim = group_dim() * n_groups();
               auto kernel = cu::rms_norm_vjp_small<
                   DataType,
-                  has_w_constant.value,
+                  has_w_constant,
                   block_dim,
                   group_dim(),
                   N_READS>;
@@ -502,8 +502,7 @@ void RMSNormVJP::eval_gpu(
                   w_stride);
             });
       } else {
-        auto kernel =
-            cu::rms_norm_vjp<DataType, has_w_constant.value, 1024, N_READS>;
+        auto kernel = cu::rms_norm_vjp<DataType, has_w_constant, 1024, N_READS>;
         encoder.add_kernel_node(
             kernel,
             n_rows,

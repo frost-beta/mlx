@@ -501,12 +501,12 @@ void sdpa_vector_1pass_fallback(
   dim3 block_dim(1024, 1, 1);
 
   dispatch_float_types(o.dtype(), "kernel_sdpav_1pass", [&](auto type_tag) {
-    dispatch_bool(do_causal, [&](auto do_causal) {
+    dispatch_bool(do_causal, [&]<bool do_causal>() {
       dispatch_headdim(params.D, [&](auto headdim) {
         using DataType = cuda_type_t<MLX_GET_TYPE(type_tag)>;
 
         auto kernel =
-            cu::kernel_sdpav_1pass<DataType, do_causal.value, headdim.value>;
+            cu::kernel_sdpav_1pass<DataType, do_causal, headdim.value>;
         encoder.add_kernel_node(
             kernel,
             grid_dim,
@@ -572,13 +572,13 @@ void sdpa_vector_2pass_fallback(
   encoder.add_temporary(maxs);
 
   dispatch_float_types(o.dtype(), "kernel_sdpav_2pass", [&](auto type_tag) {
-    dispatch_bool(do_causal, [&](auto do_causal) {
+    dispatch_bool(do_causal, [&]<bool do_causal>() {
       dispatch_headdim(params.D, [&](auto headdim) {
         using DataType = cuda_type_t<MLX_GET_TYPE(type_tag)>;
 
         {
-          auto kernel = cu::
-              kernel_sdpav_2pass_1<DataType, do_causal.value, headdim.value>;
+          auto kernel =
+              cu::kernel_sdpav_2pass_1<DataType, do_causal, headdim.value>;
 
           encoder.set_input_array(q);
           encoder.set_input_array(k);
@@ -609,8 +609,8 @@ void sdpa_vector_2pass_fallback(
         }
 
         {
-          auto kernel = cu::
-              kernel_sdpav_2pass_2<DataType, do_causal.value, headdim.value>;
+          auto kernel =
+              cu::kernel_sdpav_2pass_2<DataType, do_causal, headdim.value>;
 
           encoder.set_input_array(intermediate);
           encoder.set_input_array(sums);

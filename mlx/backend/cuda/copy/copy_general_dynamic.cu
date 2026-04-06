@@ -65,16 +65,16 @@ void copy_general_dynamic(
     dispatch_all_types(out.dtype(), [&](auto out_type_tag) {
       dispatch_bool(
           in.data_size() > INT32_MAX || out.data_size() > INT32_MAX,
-          [&](auto large) {
+          [&]<bool large>() {
             using InType = cuda_type_t<MLX_GET_TYPE(in_type_tag)>;
             using OutType = cuda_type_t<MLX_GET_TYPE(out_type_tag)>;
-            using IdxT = std::conditional_t<large(), int64_t, int32_t>;
+            using IdxT = std::conditional_t<large, int64_t, int32_t>;
             const InType* in_ptr = gpu_ptr<InType>(in) + offset_in;
             OutType* out_ptr = gpu_ptr<OutType>(out) + offset_out;
             int ndim = shape.size();
             if (ndim <= 3) {
               dispatch_1_2_3(ndim, [&](auto dims_constant) {
-                auto [num_blocks, block_dims] = get_launch_args(out, large());
+                auto [num_blocks, block_dims] = get_launch_args(out, large);
                 encoder.add_kernel_node(
                     cu::copy_gg_dynamic_nd<
                         InType,
@@ -93,7 +93,7 @@ void copy_general_dynamic(
                     gpu_ptr<int64_t>(dynamic_offset_out));
               });
             } else { // ndim >= 4
-              auto [num_blocks, block_dims] = get_launch_args(out, large());
+              auto [num_blocks, block_dims] = get_launch_args(out, large);
               encoder.add_kernel_node(
                   cu::copy_gg_dynamic<InType, OutType, IdxT>,
                   num_blocks,

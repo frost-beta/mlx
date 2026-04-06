@@ -61,17 +61,17 @@ void copy_contiguous(
     int64_t out_offset) {
   dispatch_all_types(in.dtype(), [&](auto in_type_tag) {
     dispatch_all_types(out.dtype(), [&](auto out_type_tag) {
-      dispatch_bool(out.data_size() > UINT32_MAX, [&](auto large) {
+      dispatch_bool(out.data_size() > UINT32_MAX, [&]<bool large>() {
         using InType = cuda_type_t<MLX_GET_TYPE(in_type_tag)>;
         using OutType = cuda_type_t<MLX_GET_TYPE(out_type_tag)>;
-        using IdxT = std::conditional_t<large(), int64_t, uint32_t>;
+        using IdxT = std::conditional_t<large, int64_t, uint32_t>;
         constexpr int N_READS = 16 / sizeof(InType);
         auto kernel = cu::copy_s<InType, OutType, IdxT, N_READS>;
         if (ctype == CopyType::Vector) {
           kernel = cu::copy_v<InType, OutType, IdxT, N_READS>;
         }
         auto [num_blocks, block_dims] = get_launch_args(
-            out.data_size(), out.shape(), out.strides(), large(), N_READS);
+            out.data_size(), out.shape(), out.strides(), large, N_READS);
         encoder.add_kernel_node(
             kernel,
             num_blocks,

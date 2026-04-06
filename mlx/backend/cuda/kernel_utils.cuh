@@ -38,9 +38,9 @@ void dispatch_1_2_3(int n, F&& f) {
 template <typename F>
 void dispatch_bool(bool v, F&& f) {
   if (v) {
-    f(std::true_type{});
+    f.template operator()<true>();
   } else {
-    f(std::false_type{});
+    f.template operator()<false>();
   }
 }
 

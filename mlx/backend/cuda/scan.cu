@@ -385,16 +385,16 @@ void scan_gpu_inplace(
       using Op = MLX_GET_TYPE(scan_op_tag);
       if constexpr (supports_scan_op<Op, T>()) {
         using U = typename cu::ScanResult<Op, T>::type;
-        dispatch_bool(inclusive, [&](auto inclusive_tag) {
-          dispatch_bool(reverse, [&](auto reverse_tag) {
+        dispatch_bool(inclusive, [&]<bool inclusive_tag>() {
+          dispatch_bool(reverse, [&]<bool reverse_tag>() {
             if (contiguous) {
               auto kernel = cu::contiguous_scan<
                   T,
                   U,
                   Op,
                   N_READS,
-                  inclusive_tag.value,
-                  reverse_tag.value>;
+                  inclusive_tag,
+                  reverse_tag>;
               int block_dim = cuda::ceil_div(axis_size, N_READS);
               block_dim = cuda::ceil_div(block_dim, WARP_SIZE) * WARP_SIZE;
               block_dim = std::min(block_dim, WARP_SIZE * WARP_SIZE);
@@ -415,8 +415,8 @@ void scan_gpu_inplace(
                   N_READS,
                   BM,
                   BN,
-                  inclusive_tag.value,
-                  reverse_tag.value>;
+                  inclusive_tag,
+                  reverse_tag>;
               int64_t stride = in.strides()[axis];
               int64_t stride_blocks = cuda::ceil_div(stride, BN);
               dim3 num_blocks = get_2d_grid_dims(

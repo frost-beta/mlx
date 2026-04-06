@@ -226,14 +226,14 @@ void grouped_gemm_v2(
     void* b_ptrs,
     void* out_ptrs,
     cu::CommandEncoder& encoder) {
-  dispatch_bool(a_transposed, [&](auto a_transposed_tag) {
-    dispatch_bool(b_transposed, [&](auto b_transposed_tag) {
+  dispatch_bool(a_transposed, [&]<bool a_transposed>() {
+    dispatch_bool(b_transposed, [&]<bool b_transposed>() {
       using LayoutA = std::conditional_t<
-          a_transposed_tag.value,
+          a_transposed,
           cutlass::layout::ColumnMajor,
           cutlass::layout::RowMajor>;
       using LayoutB = std::conditional_t<
-          b_transposed_tag.value,
+          b_transposed,
           cutlass::layout::ColumnMajor,
           cutlass::layout::RowMajor>;
       using GemmKernel = typename cutlass::gemm::kernel::DefaultGemmGrouped<
@@ -300,11 +300,11 @@ auto* get_grouped_mm_funcion(Dtype dtype, int N, cu::Device& device) {
     using DataType = cutlass_type_t<MLX_GET_TYPE(type_tag)>;
     dispatch_cutlass_arch(device, [&](auto arch_tag) {
       using Arch = MLX_GET_TYPE(arch_tag);
-      dispatch_bool(N % 8 == 0, [&](auto is_out_aligned) {
+      dispatch_bool(N % 8 == 0, [&]<bool is_out_aligned>() {
         constexpr int kAlignmentC = is_out_aligned ? 8 : 1;
-        dispatch_bool(env::enable_tf32(), [&](auto kEnableTF32) {
+        dispatch_bool(env::enable_tf32(), [&]<bool enable_tf32>() {
           fun = grouped_gemm_v2<
-              GemmConfiguration<DataType, Arch, kAlignmentC, kEnableTF32>>;
+              GemmConfiguration<DataType, Arch, kAlignmentC, enable_tf32>>;
         });
       });
     });

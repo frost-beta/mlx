@@ -49,9 +49,9 @@ void Arange::eval_gpu(const std::vector<array>& inputs, array& out) {
     using CTYPE = MLX_GET_TYPE(type_tag);
     using OutType = cuda_type_t<CTYPE>;
     constexpr int N_WRITES = 16 / sizeof(OutType);
-    dispatch_bool(out.data_size() > INT32_MAX, [&](auto large) {
-      using IdxT = std::conditional_t<large(), int64_t, int32_t>;
-      auto [num_blocks, block_dims] = get_launch_args(out, large(), N_WRITES);
+    dispatch_bool(out.data_size() > INT32_MAX, [&]<bool large>() {
+      using IdxT = std::conditional_t<large, int64_t, int32_t>;
+      auto [num_blocks, block_dims] = get_launch_args(out, large, N_WRITES);
       encoder.add_kernel_node(
           cu::arange<OutType, IdxT, N_WRITES>,
           num_blocks,

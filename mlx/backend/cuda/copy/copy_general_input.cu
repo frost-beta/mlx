@@ -163,8 +163,8 @@ void copy_general_input(
 
       dispatch_bool(
           in.data_size() > INT32_MAX || out.data_size() > INT32_MAX,
-          [&](auto large) {
-            using IdxT = std::conditional_t<large(), int64_t, int32_t>;
+          [&]<bool large>() {
+            using IdxT = std::conditional_t<large, int64_t, int32_t>;
 
             int work_per_thread = 8;
             auto dim0 = ndim > 0 ? shape.back() : 1;

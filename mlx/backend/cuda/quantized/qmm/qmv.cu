@@ -202,13 +202,13 @@ void qmv(
   dim3 block_dims{WARP_SIZE, rows_per_block};
   void* args[] = {&x, &w, &scales, &biases, &out, &n, &k, &broadcast_w};
 
-  dispatch_bool(k % (WARP_SIZE * elems_per_thread), [&](auto has_residue_k) {
+  dispatch_bool(k % (WARP_SIZE * elems_per_thread), [&]<bool has_residue_k>() {
     auto* kernel = &qmv_kernel<
         rows_per_block,
         elems_per_thread,
         group_size,
         has_bias,
-        has_residue_k.value,
+        has_residue_k,
         T,
         Q,
         S>;
