@@ -91,17 +91,17 @@ class MLX_API array {
    * it and keep its inputs (including captured constants) alive forever.
    */
   array& operator=(array&& other) & noexcept {
-    if (this != &other) {
-      array previous(std::move(*this));
-      this->array_desc_ = std::move(other.array_desc_);
+    if (array_desc_ != other.array_desc_) {
+      reset();
+      array_desc_ = std::move(other.array_desc_);
     }
     return *this;
   }
 
   array& operator=(const array& other) & {
-    if (this->id() != other.id()) {
-      array previous(std::move(*this));
-      this->array_desc_ = other.array_desc_;
+    if (array_desc_ != other.array_desc_) {
+      reset();
+      array_desc_ = other.array_desc_;
     }
     return *this;
   }
@@ -481,8 +481,10 @@ class MLX_API array {
   void copy_shared_buffer(const array& other);
 
   void overwrite_descriptor(const array& other) {
-    array previous(std::move(*this));
-    array_desc_ = other.array_desc_;
+    if (array_desc_ != other.array_desc_) {
+      reset();
+      array_desc_ = other.array_desc_;
+    }
   }
 
   ~array();
@@ -491,6 +493,8 @@ class MLX_API array {
   // Initialize the arrays data
   template <typename It>
   void init(const It src);
+
+  void reset();
 
   struct MLX_API ArrayDesc {
     Shape shape;

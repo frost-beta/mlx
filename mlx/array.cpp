@@ -209,6 +209,10 @@ void array::copy_shared_buffer(const array& other) {
 }
 
 array::~array() {
+  reset();
+}
+
+void array::reset() {
   if (array_desc_ == nullptr) {
     return;
   }
